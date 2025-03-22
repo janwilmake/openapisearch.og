@@ -1,182 +1,221 @@
 /// <reference types="@cloudflare/workers-types" />
 /**
- * Cloudflare worker that puts out an og-image; written in as few tokens as possible.
+ * Cloudflare worker that puts out an og-image comparing OpenAPI and SLOP tokens
  *
- * Ideal for alteration with LLMs into an og-image with a different purpose.
- *
- * Common problems with workers-og:
- * - none, just use simple css, like below!
+ * Takes an {id} from the pathname and renders a comparison between:
+ * - OpenAPI from https://openapisearch.com/redirect/{id}
+ * - SLOP from https://oapis.org/slop/{id}
  */
 import { ImageResponse } from "workers-og";
-const og = `<div
-    style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif; background-color: #f0f0f0; margin: 0; display: flex;">
-    <div class="card"
-        style="background-color: white; box-shadow: 0 8px 12px rgba(0, 0, 0, 0.1); overflow: hidden; width: 1200px; height: 630px; display: flex; flex-direction: column;">
-        <div class="content" style="flex-grow: 1; display: flex; align-items: center;">
-            <div class="header" style="padding: 40px; display: flex; align-items: center; flex-grow: 1;">
-                <div class="title-container" style="flex-grow: 1; display: flex; flex-direction: column;">
-                    <div class="title" id="title"
-                        style="font-size: 56px; font-weight: bold; margin-bottom: 20px; display: flex;">tzador/makedown
-                    </div>
-                    <div class="subtitle" id="description" style="display: flex; font-size: 32px; color: #666;">Organise
-                        your shell scripts within executable markdown files</div>
+
+const htmlTemplate = `<div
+    style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif; background-color: #f5f7fa; margin: 0; display: flex; justify-content: center; align-items: center; width: 1200px; height: 630px;">
+    <div
+        style="background-color: white; box-shadow: 0 8px 25px rgba(0, 0, 0, 0.1); border-radius: 12px; overflow: hidden; width: 1000px; height: 530px; display: flex; flex-direction: column;">
+        <div style="display: flex; flex: 1;">
+            <div
+                style="width: 50%; padding: 30px; display: flex; flex-direction: column; background-color: #fff9e7; border-right: 1px solid #f3f4f6;">
+                <div
+                    style="font-size: 36px; font-weight: 800; margin-bottom: 16px; color: #b45309; display: flex;">
+                    OpenAPI: <span id="openapi-tokens" style="display: flex; margin-left: 10px;">--</span><span style="margin-left: 10px;"> tokens</span>
                 </div>
-                <img id="avatar" width="160" height="160" src="/api/placeholder/160/160" alt="Avatar"
-                    style="width: 160px; height: 160px; border-radius: 20px; margin-left: 40px;">
+                <div
+                    style="background: rgba(0, 0, 0, 0.04); padding: 16px; border-radius: 8px; flex: 1; position: relative; display: flex; flex-direction: column;">
+                    <div id="openapi-code"
+                        style="font-family: 'Menlo', 'Monaco', 'Courier New', monospace; font-size: 16px; line-height: 1.6; margin: 0; max-height: 340px; overflow: hidden; word-wrap: break-word; word-break: break-all; display: flex; flex-direction: column;">{}</div>
+                    <div
+                        style="position: absolute; bottom: 0; right: 0; left: 0; padding: 6px 16px; background: rgba(0, 0, 0, 0.06); font-size: 14px; font-style: italic; text-align: right; color: #6b7280; display: flex; justify-content: flex-end;">
+                        <span id="openapi-footer" style="display: flex;">loading...</span>
+                    </div>
+                </div>
+            </div>
+            <div
+                style="width: 50%; padding: 30px; display: flex; flex-direction: column; background-color: #ecfdf5;">
+                <div
+                    style="font-size: 36px; font-weight: 800; margin-bottom: 16px; color: #047857; display: flex;">
+                    SLOP: <span id="slop-tokens" style="display: flex; margin-left: 10px;">--</span> <span style="margin-left: 10px;"> tokens</span>
+                </div>
+                <div
+                    style="background: rgba(0, 0, 0, 0.04); padding: 16px; border-radius: 8px; flex: 1; position: relative; display: flex; flex-direction: column;">
+                    <div id="slop-code"
+                        style="font-family: 'Menlo', 'Monaco', 'Courier New', monospace; font-size: 16px; line-height: 1.6; margin: 0; max-height: 340px; overflow: hidden; word-wrap: break-word; word-break: break-all; display: flex; flex-direction: column;"></div>
+                    <div
+                        style="position: absolute; bottom: 0; right: 0; left: 0; padding: 6px 16px; background: rgba(0, 0, 0, 0.06); font-size: 14px; font-style: italic; text-align: right; color: #6b7280; display: flex; justify-content: flex-end;">
+                        <span id="slop-footer" style="display: flex;">loading...</span>
+                    </div>
+                </div>
             </div>
         </div>
-        <div class="stats"
-            style="display: flex; justify-content: space-around; padding: 30px 0 60px 0; background-color: #75147c; border-top: 2px solid #eee;">
-            <div class="stat" style="text-align: center; display: flex; flex-direction: column;">
-                <div id="tokens" class="stat-value"
-                    style="color:#fff; display: flex; font-weight: bold; font-size: 36px; justify-content: center;">100
-                </div>
-                <div class="stat-label" style="display: flex; font-size: 24px; color: #fff; justify-content: center;">
-                    LLM Tokens</div>
-            </div>
-            <div class="stat" style="text-align: center; display: flex; flex-direction: column;">
-                <div class="stat-value" id="issues"
-                    style="color:#fff; display: flex; font-weight: bold; font-size: 36px; justify-content: center;">16
-                </div>
-                <div class="stat-label" style="display: flex; font-size: 24px; color: #fff; justify-content: center;">
-                    Issues</div>
-            </div>
-            <div class="stat" style="text-align: center; display: flex; flex-direction: column;">
-                <div class="stat-value" id="stars"
-                    style="color:#fff; display: flex; font-weight: bold; font-size: 36px; justify-content: center;">141
-                </div>
-                <div class="stat-label" style="display: flex; font-size: 24px; color: #fff; justify-content: center;">
-                    Stars</div>
-            </div>
-            <div class="stat" style="text-align: center; display: flex; flex-direction: column;">
-                <div class="stat-value" id="forks"
-                    style="color:#fff; display: flex; font-weight: bold; font-size: 36px; justify-content: center;">2
-                </div>
-                <div class="stat-label" style="display: flex; font-size: 24px; color: #fff; justify-content: center;">
-                    Forks</div>
-            </div>
-            <svg class="github-icon" viewBox="0 0 16 16" version="1.1" width="64" height="64" aria-hidden="true">
-                <path fill="white" fill-rule="evenodd"
-                    d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z">
-                </path>
-            </svg>
+        <div
+            style="background: #4f46e5; padding: 20px; text-align: center; color: white; display: flex; justify-content: center;">
+            <p
+                style="font-weight: 700; font-size: 28px; margin: 0; word-wrap: break-word; display: flex;">
+                Allow LLMs to Navigate the {{providerId}} API without Error
+            </p>
         </div>
     </div>
 </div>`;
-interface RepoDetails {
-  id: number;
-  node_id: string;
-  name: string;
-  full_name: string;
-  private: boolean;
-  description: string | null;
-  archived: boolean;
-  default_branch: string;
-  pushed_at: string | null;
-  created_at: string;
-  homepage: string | null;
-  topics: string[] | null;
-  updated_at: string;
-  stargazers_count: number;
-  forks_count: number;
-  open_issues_count: number;
-  owner: {
-    login: string;
-    id: number;
-    avatar_url: string;
-  };
+
+/**
+ * Calculates the estimated token count for a text
+ * @param text The text to calculate tokens for
+ * @returns Rounded token count estimate
+ */
+function calculateTokens(text: string): number {
+  return Math.round(text.length / 5);
 }
 
-async function fetchRepoDetails(
-  token: string | undefined,
-  owner: string,
-  repo: string,
-): Promise<{
-  status: number;
-  statusText?: string;
-  message?: string;
-  result?: RepoDetails;
-}> {
-  const headers: { [key: string]: string } = {
-    Accept: "application/vnd.github+json",
-    "X-GitHub-Api-Version": "2022-11-28",
-    "User-Agent": "github-og-image",
-  };
-
-  if (token) {
-    headers.Authorization = `Bearer ${token}`;
+/**
+ * Truncates text for display purposes
+ * @param text Text to truncate
+ * @param maxLength Maximum length to show
+ * @returns Truncated text
+ */
+function truncateForDisplay(text: string, maxLength: number = 500): string {
+  if (text.length <= maxLength) {
+    // Format with line breaks for display
+    return formatWithLineBreaks(text);
   }
-  const url = `https://api.github.com/repos/${owner}/${repo}`;
+  return formatWithLineBreaks(text.substring(0, maxLength)) + "...";
+}
 
-  const response = await fetch(url, {
-    method: "GET",
-    headers,
-  });
-
-  if (!response.ok) {
-    return {
-      status: response.status,
-      statusText: response.statusText,
-      message: await response.text(),
-    };
+/**
+ * Formats text with explicit line breaks for better display
+ * @param text The input text to format
+ * @returns Formatted text with line breaks
+ */
+function formatWithLineBreaks(text: string): string {
+  // For OpenAPI (JSON format)
+  if (text.trim().startsWith("{")) {
+    try {
+      // Try to parse as JSON and add line breaks
+      const jsonObj = JSON.parse(text);
+      let formattedText = JSON.stringify(jsonObj, null, 2);
+      // Replace newlines with <br> for HTML display
+      return formattedText
+        .replace(/\n/g, "<br>")
+        .replace(/\s\s/g, "&nbsp;&nbsp;");
+    } catch (e) {
+      // If parsing fails, just add breaks at reasonable intervals
+      return addBreaksToText(text);
+    }
   }
+  // For SLOP format
+  else {
+    return addBreaksToText(text);
+  }
+}
 
-  const data: RepoDetails = await response.json();
+/**
+ * Adds breaks to text at reasonable intervals
+ * @param text The text to process
+ * @returns Text with breaks added
+ */
+function addBreaksToText(text: string): string {
+  // Add breaks after common delimiter patterns
+  let result = text
+    .replace(/\n/g, "<br>")
+    .replace(/\s-\s/g, "<br>- ")
+    .replace(/\.\s+/g, ".<br>")
+    .replace(/GET\s+/g, "GET<br>")
+    .replace(/POST\s+/g, "POST<br>")
+    .replace(/PUT\s+/g, "PUT<br>")
+    .replace(/DELETE\s+/g, "DELETE<br>");
 
-  return { result: data, status: response.status };
+  return result;
 }
 
 export default {
   async fetch(request: Request): Promise<Response> {
-    const response = new Response(og, {
-      headers: { "Content-Type": "text/html" },
-    });
     const url = new URL(request.url);
-    const [_, owner, repo] = url.pathname.split("/");
-    const path = url.searchParams.get("path");
-    const tokens = url.searchParams.get("tokens");
+    const id = url.pathname.substring(1); // Remove leading slash to get {id}
 
-    if (!owner || !repo) {
-      return new Response("Not found", { status: 404 });
+    if (!id) {
+      return new Response("API ID is required", { status: 400 });
     }
 
-    const details = await fetchRepoDetails(undefined, owner, repo);
-    if (!details.result) {
-      console.log({ details });
-      return new Response("Repo not found", { status: 404 });
+    try {
+      // Fetch OpenAPI and SLOP in parallel
+      const [openApiResponse, slopResponse] = await Promise.all([
+        fetch(`https://openapisearch.com/redirect/${id}`),
+        fetch(`https://oapis.org/slop/${id}`),
+      ]);
+
+      if (!openApiResponse.ok || !slopResponse.ok) {
+        return new Response("Failed to fetch API specifications", {
+          status: 404,
+        });
+      }
+
+      // Get text from both responses
+      const openApiText = await openApiResponse.text();
+      const slopText = await slopResponse.text();
+
+      // Calculate token counts
+      const openApiTokens = calculateTokens(openApiText);
+      const slopTokens = calculateTokens(slopText);
+
+      // Prepare display text (truncated for visual purposes)
+      const openApiDisplay = truncateForDisplay(openApiText);
+      const slopDisplay = truncateForDisplay(slopText);
+
+      // Create base HTML response
+      const response = new Response(
+        htmlTemplate.replace("{{providerId}}", id.length < 20 ? id : ""),
+        {
+          headers: { "Content-Type": "text/html" },
+        },
+      );
+
+      // Rewrite HTML with actual data
+      const rewrite = new HTMLRewriter()
+        .on("#openapi-tokens", {
+          element(el) {
+            el.setInnerContent(openApiTokens.toLocaleString());
+          },
+        })
+        .on("#slop-tokens", {
+          element(el) {
+            el.setInnerContent(slopTokens.toLocaleString());
+          },
+        })
+        .on("#openapi-code", {
+          element(el) {
+            // Set HTML content to preserve line breaks
+            el.setInnerContent(openApiDisplay, { html: true });
+          },
+        })
+        .on("#slop-code", {
+          element(el) {
+            // Set HTML content to preserve line breaks
+            el.setInnerContent(slopDisplay, { html: true });
+          },
+        })
+        .on("#openapi-footer", {
+          element(el) {
+            el.setInnerContent(
+              `${openApiTokens.toLocaleString()} tokens total`,
+            );
+          },
+        })
+        .on("#slop-footer", {
+          element(el) {
+            el.setInnerContent(`${slopTokens.toLocaleString()} tokens only`);
+          },
+        })
+        .transform(response);
+
+      const html = await rewrite.text();
+
+      // Generate the image response
+      return new ImageResponse(html, {
+        width: 1200,
+        height: 630,
+        format: "png",
+      });
+    } catch (error) {
+      console.error("Error generating OG image:", error);
+      return new Response("Error generating image", { status: 500 });
     }
-
-    const pathPart = path ? `/${path}` : "";
-    const repoData = {
-      title: `${owner}/${repo}${pathPart}`,
-      description: details.result.description || "",
-      avatarUrl: details.result.owner.avatar_url,
-      tokens,
-      issues: details.result.open_issues_count,
-      stars: details.result.stargazers_count,
-      forks: details.result.forks_count,
-    };
-
-    const rewrite = new HTMLRewriter()
-      .on("#title, #description, #tokens, #issues, #stars, #forks", {
-        element(el) {
-          el.setInnerContent(repoData[el.getAttribute("id")!]);
-        },
-      })
-      .on("#avatar", {
-        element(el) {
-          el.setAttribute("src", repoData.avatarUrl);
-        },
-      })
-      .transform(response);
-
-    const text = await rewrite.text();
-
-    return new ImageResponse(text, {
-      // 2x bigger than needed to prevent it being bad quality
-      width: 1200,
-      height: 630,
-      format: "png",
-    });
   },
 };

@@ -1,6 +1,5 @@
 name = "github-og-image"
 main = "README.ts"
 compatibility_date = "2024-10-16"
-
-[observability]
-enabled = true
+route.custom_domain = true
+route.pattern = "og.openapisearch.com"
