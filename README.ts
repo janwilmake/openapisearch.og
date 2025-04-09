@@ -45,9 +45,13 @@ const htmlTemplate = `<div
                     </div>
                 </div>
             </div>
+
         </div>
         <div
-            style="background: #4f46e5; padding: 20px; text-align: center; color: white; display: flex; justify-content: center;">
+            style="background: #4f46e5; padding: 20px; text-align: center; color: white; display: flex; justify-content: center; align-items:center;">
+
+            <img src="https://openapisearch.com/logo/{{logoId}}" width="40" height="40" style="margin-right: 20px;" />
+
             <p
                 style="font-weight: 700; font-size: 28px; margin: 0; word-wrap: break-word; display: flex;">
                 Allow LLMs to Navigate the {{providerId}} API without Error
@@ -161,7 +165,9 @@ export default {
 
       // Create base HTML response
       const response = new Response(
-        htmlTemplate.replace("{{providerId}}", id.length < 20 ? id : ""),
+        htmlTemplate
+          .replace("{{providerId}}", id.length < 20 ? id : "")
+          .replace("{{logoId}}", id),
         {
           headers: { "Content-Type": "text/html" },
         },

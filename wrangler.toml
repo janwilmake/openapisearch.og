@@ -1,4 +1,4 @@
-name = "github-og-image"
+name = "openapisearch_og"
 main = "README.ts"
 compatibility_date = "2024-10-16"
 route.custom_domain = true
